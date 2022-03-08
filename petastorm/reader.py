@@ -213,7 +213,8 @@ def make_batch_reader(dataset_url_or_urls,
                       filters=None,
                       storage_options=None,
                       zmq_copy_buffers=True,
-                      filesystem=None):
+                      filesystem=None,
+                      use_experimental_pyarrow_api=False):
     """
     Creates an instance of Reader for reading batches out of a non-Petastorm Parquet store.
 
@@ -275,6 +276,10 @@ def make_batch_reader(dataset_url_or_urls,
     :param zmq_copy_buffers: A bool indicating whether to use 0mq copy buffers with ProcessPool.
     :param filesystem: An instance of ``pyarrow.FileSystem`` to use. Will ignore storage_options and
         other filesystem configs if it's provided.
+    :param use_experimental_pyarrow_api: If True, use PyArrow's new "experimental" Dataset API instead of the default
+        "legacy" API. This allows filtering on non-partition-key columns and use of different partitioning schemes.
+        For more information, see the documentation for ParquetDataset's ``use_legacy_dataset`` parameter:
+        https://arrow.apache.org/docs/python/generated/pyarrow.parquet.ParquetDataset.html
     :return: A :class:`Reader` object
     """
     dataset_url_or_urls = normalize_dataset_url_or_urls(dataset_url_or_urls)
@@ -329,7 +334,8 @@ def make_batch_reader(dataset_url_or_urls,
                   cache=cache,
                   transform_spec=transform_spec,
                   is_batched_reader=True,
-                  filters=filters)
+                  filters=filters,
+                  use_experimental_pyarrow_api=use_experimental_pyarrow_api)
 
 
 class Reader(object):
@@ -342,7 +348,8 @@ class Reader(object):
                  shuffle_row_groups=True, shuffle_row_drop_partitions=1,
                  predicate=None, rowgroup_selector=None, reader_pool=None, num_epochs=1,
                  cur_shard=None, shard_count=None, cache=None, worker_class=None,
-                 transform_spec=None, is_batched_reader=False, filters=None, shard_seed=None):
+                 transform_spec=None, is_batched_reader=False, filters=None, shard_seed=None,
+                 use_experimental_pyarrow_api=False):
         """Initializes a reader object.
 
         :param pyarrow_filesystem: An instance of ``pyarrow.FileSystem`` that will be used. If not specified,
@@ -384,6 +391,10 @@ class Reader(object):
             These will be applied when loading the parquet file with PyArrow. More information
             here: https://arrow.apache.org/docs/python/generated/pyarrow.parquet.ParquetDataset.html
         :param shard_seed: Random seed to shuffle row groups for data sharding. Defaults to None
+        :param use_experimental_pyarrow_api: If True, use PyArrow's new "experimental" Dataset API instead of the
+            default "legacy" API. This allows filtering on non-partition-key columns, and use of different partitioning
+            schemes. For more information, see the documentation for ParquetDataset's ``use_legacy_dataset`` parameter:
+            https://arrow.apache.org/docs/python/generated/pyarrow.parquet.ParquetDataset.html
         """
         self.num_epochs = num_epochs
 
@@ -401,10 +412,11 @@ class Reader(object):
                              'or an NGram object.')
 
         self.is_batched_reader = is_batched_reader
+        use_legacy_dataset = not use_experimental_pyarrow_api
         # 1. Resolve dataset path (hdfs://, file://) and open the parquet storage (dataset)
         self.dataset = pq.ParquetDataset(dataset_path, filesystem=pyarrow_filesystem,
                                          validate_schema=False, metadata_nthreads=10,
-                                         filters=filters)
+                                         filters=filters, use_legacy_dataset=use_legacy_dataset)
 
         stored_schema = infer_or_load_unischema(self.dataset)
 
